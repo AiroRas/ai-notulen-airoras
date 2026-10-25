@@ -9,9 +9,10 @@ from google.genai import types
 
 # Setup tampilan halaman
 st.set_page_config(
-    page_title="AI Notulen Rapat Kilat", 
+    page_title="AI Notulen AiroRas", 
     page_icon="🎙️", 
-    layout="centered"
+    layout="centered",
+    initial_sidebar_state="collapsed"
 )
 
 # Custom Component: Tombol Copy to Clipboard berbasis JavaScript Modern
