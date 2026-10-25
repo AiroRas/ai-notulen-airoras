@@ -7,10 +7,13 @@ import streamlit.components.v1 as components
 from google import genai
 from google.genai import types
 
-# Setup tampilan halaman
+# Path file logo lu
+LOGO_PATH = "logo.png"
+
+# Setup tampilan halaman (icon tab browser pake logo kalau ada, fallback ke emoji)
 st.set_page_config(
     page_title="AI Notulen AiroRas", 
-    page_icon="🎙️", 
+    page_icon=LOGO_PATH if os.path.exists(LOGO_PATH) else "🎙️", 
     layout="centered",
     initial_sidebar_state="collapsed"
 )
@@ -68,11 +71,7 @@ def copy_to_clipboard_button(text_to_copy, button_text="📋 Salin Semua ke Clip
     """
     components.html(html_code, height=65)
 
-# Header Aplikasi
-st.title("🎙️ AI Notulen & Rekap Rapat")
-st.caption("Ditenagai Google Gemini 3.8 Flash — Rekam langsung atau upload file, santai bentar, rekap kelar!")
-
-# Pengecekan secrets anti-crash
+# Cek apakah API Key tersimpan di st.secrets
 default_api_key = ""
 try:
     if "GEMINI_API_KEY" in st.secrets:
@@ -82,6 +81,9 @@ except Exception:
 
 # Sidebar Konfigurasi & Branding
 with st.sidebar:
+    if os.path.exists(LOGO_PATH):
+        st.image(LOGO_PATH, use_container_width=True)
+    
     st.header("⚙️ Konfigurasi")
     api_key_input = st.text_input(
         "Masukkan Gemini API Key:", 
@@ -105,6 +107,18 @@ with st.sidebar:
         "</div>", 
         unsafe_allow_html=True
     )
+
+# Header Halaman Utama
+if os.path.exists(LOGO_PATH):
+    col_logo, col_title = st.columns([1, 4])
+    with col_logo:
+        st.image(LOGO_PATH, width=80)
+    with col_title:
+        st.title("AI Notulen & Rekap Rapat")
+else:
+    st.title("🎙️ AI Notulen & Rekap Rapat")
+
+st.caption("Ditenagai Google Gemini 3.8 Flash — Rekam langsung atau upload file, santai bentar, rekap kelar!")
 
 # Pilihan Tab Input Audio
 tab_rekam, tab_upload = st.tabs(["🔴 Rekam Langsung (Mic)", "📁 Upload File Audio"])
@@ -184,7 +198,6 @@ if audio_bytes_source is not None:
             """
 
             response = None
-            # Retry loop khusus model resmi gemini-3.8-flash
             for attempt in range(3):
                 try:
                     response = client.models.generate_content(
