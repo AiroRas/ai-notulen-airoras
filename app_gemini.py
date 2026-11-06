@@ -89,6 +89,13 @@ with st.sidebar:
     if default_api_key:
         st.success("🔒 API Key otomatis terpasang dari Secrets!")
     
+    selected_model = st.selectbox(
+        "Pilih Model AI:",
+        ["gemini-2.5-flash", "gemini-3.8-flash"],
+        index=0,
+        help="Gunakan 2.5-flash jika audio berdurasi panjang (>15 menit) untuk menghindari antrean 503."
+    )
+    
     st.markdown("---")
     st.markdown("""
     **Metode Input:**
@@ -150,7 +157,7 @@ if audio_bytes_source is not None:
             tmp_path = tmp_file.name
 
         try:
-            status_box = st.status("Sedang memproses audio lu...", expanded=True)
+            status_box = st.status("Sedang memproses audio rapat lu...", expanded=True)
             
             status_box.write("📤 Mengunggah audio ke Google Cloud...")
             audio_cloud = client.files.upload(file=tmp_path)
@@ -162,63 +169,69 @@ if audio_bytes_source is not None:
 
             if audio_cloud.state.name == "FAILED":
                 status_box.update(label="Gagal memproses audio!", state="error")
-                st.error("Audio lu gagal diproses di sisi Google, coba format lain.")
+                st.error("Audio lu gagal diproses di sisi Google, coba periksa formatnya.")
                 st.stop()
 
-            status_box.write("🧠 Gemini lagi dengerin & menyusun notulensi...")
+            status_box.write("🧠 Gemini lagi dengerin & menyusun notulensi rapat...")
             
             prompt_notulensi = """
-            Kamu adalah asisten eksekutif dan notulis rapat level C-Suite yang sangat objektif dan teliti.
-            Dengarkan rekaman audio ini, lalu susun laporan notulensi rapat yang terstruktur dengan format:
+            Kamu adalah notulis rapat profesional dan asisten eksekutif level direksi.
+            Dengarkan seluruh audio rapat ini dengan saksama dan buatkan laporan notulensi lengkap:
 
             ### 1. 📌 Ringkasan Eksekutif (TL;DR)
-            Rangkum inti pembicaraan dan tujuan utama rapat dalam 1-2 paragraf padat.
+            Rangkum inti masalah, fokus pembahasan, dan arah kesepakatan dalam 1-2 paragraf padat.
 
-            ### 2. 🗣️ Poin-Poin Pembahasan Utama
-            Rincikan topik-topik penting atau perdebatan yang terjadi secara objektif.
+            ### 2. 🗣️ Poin-Poin Pembahasan Rinci
+            Rincikan topik diskusi, kendala lapangan, atau perdebatan yang terjadi.
 
             ### 3. ✅ Keputusan Final yang Disepakati
-            Tuliskan daftar kesepakatan atau konsensus yang berhasil dicapai.
+            Tuliskan daftar kesepakatan final atau konsensus yang disetujui bersama.
 
-            ### 4. 🎯 Action Items & To-Do List (Wajib Lengkap)
-            - **Siapa (PIC)**: Nama orang atau divisi yang bertanggung jawab
-            - **Tugas**: Apa tugas spesifik yang harus dikerjakan
-            - **Deadline**: Kapan tenggat waktunya (jika disebutkan)
+            ### 4. 🎯 Action Items & To-Do List (Wajib Detail)
+            - **PIC**: Nama person-in-charge atau divisi terkait
+            - **Tindakan**: Tugas teknis/operasional spesifik
+            - **Deadline**: Waktu penyelesaian (jika ada)
 
-            ### 5. ⚠️ Catatan Tambahan / Risiko / Agenda Lanjutan
-            Tuliskan hal penting lain yang perlu dipantau atau tindak lanjut pertemuan berikutnya.
+            ### 5. ⚠️ Catatan Penting / Agenda Lanjutan
+            Isu tertunda, resiko teknis, atau jadwal rapat berikutnya.
             """
+
+            # Urutan model eksekusi: model pilihan utama, lalu fallback otomatis
+            model_pipeline = [selected_model]
+            alt_model = "gemini-2.5-flash" if selected_model != "gemini-2.5-flash" else "gemini-3.8-flash"
+            model_pipeline.append(alt_model)
 
             response = None
             last_err = None
 
-            # Jaring pengaman multi-retry dengan jeda bertingkat (exponential backoff)
-            for attempt in range(5):
-                try:
-                    status_box.write(f"🧠 Memproses audio dengan Gemini 3.8 Flash (Upaya {attempt + 1}/5)...")
-                    response = client.models.generate_content(
-                        model="gemini-3.8-flash",
-                        contents=[audio_cloud, prompt_notulensi],
-                        config=types.GenerateContentConfig(temperature=0.2)
-                    )
+            for target_model in model_pipeline:
+                for attempt in range(3):
+                    try:
+                        status_box.write(f"⚙️ Memproses dengan `{target_model}` (Percobaan {attempt + 1}/3)...")
+                        response = client.models.generate_content(
+                            model=target_model,
+                            contents=[audio_cloud, prompt_notulensi],
+                            config=types.GenerateContentConfig(temperature=0.2)
+                        )
+                        if response and response.text:
+                            break
+                    except Exception as err:
+                        last_err = err
+                        err_str = str(err)
+                        if "503" in err_str or "UNAVAILABLE" in err_str or "high demand" in err_str:
+                            time.sleep(3 * (attempt + 1))
+                            continue
+                        break
+                if response and response.text:
                     break
-                except Exception as err:
-                    last_err = err
-                    err_msg = str(err)
-                    if "503" in err_msg or "UNAVAILABLE" in err_msg or "high demand" in err_msg:
-                        jeda = (attempt + 1) * 4
-                        status_box.write(f"⚠️ Server Google lagi padat, santai dulu {jeda} detik ya...")
-                        time.sleep(jeda)
-                        continue
-                    raise err
 
             client.files.delete(name=audio_cloud.name)
 
-            if response is None:
-                raise last_err
+            if response is None or not response.text:
+                raise last_err if last_err else Exception("Gagal mendapatkan respons dari model.")
 
             status_box.update(label="Selesai! Notulensi siap disalin.", state="complete", expanded=False)
-            st.success("✅ Rekapitulasi Rapat Berhasil Dibuat!")
+            st.success("✅ Notulensi Rapat Berhasil Disusun!")
             
             col_copy, col_download = st.columns([1, 1])
             with col_copy:
