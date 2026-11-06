@@ -7,10 +7,8 @@ import streamlit.components.v1 as components
 from google import genai
 from google.genai import types
 
-# Path file logo lu
-LOGO_PATH = "logo.png"
+LOGO_PATH = "Logo.png"
 
-# Setup tampilan halaman (icon tab browser pake logo kalau ada, fallback ke emoji)
 st.set_page_config(
     page_title="AI Notulen AiroRas", 
     page_icon=LOGO_PATH if os.path.exists(LOGO_PATH) else "🎙️", 
@@ -18,7 +16,6 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Custom Component: Tombol Copy to Clipboard berbasis JavaScript Modern
 def copy_to_clipboard_button(text_to_copy, button_text="📋 Salin Semua ke Clipboard"):
     escaped_text = json.dumps(text_to_copy)
     html_code = f"""
@@ -71,7 +68,6 @@ def copy_to_clipboard_button(text_to_copy, button_text="📋 Salin Semua ke Clip
     """
     components.html(html_code, height=65)
 
-# Cek apakah API Key tersimpan di st.secrets
 default_api_key = ""
 try:
     if "GEMINI_API_KEY" in st.secrets:
@@ -79,7 +75,6 @@ try:
 except Exception:
     default_api_key = ""
 
-# Sidebar Konfigurasi & Branding
 with st.sidebar:
     if os.path.exists(LOGO_PATH):
         st.image(LOGO_PATH, use_container_width=True)
@@ -108,7 +103,6 @@ with st.sidebar:
         unsafe_allow_html=True
     )
 
-# Header Halaman Utama
 if os.path.exists(LOGO_PATH):
     col_logo, col_title = st.columns([1, 4])
     with col_logo:
@@ -118,9 +112,8 @@ if os.path.exists(LOGO_PATH):
 else:
     st.title("🎙️ AI Notulen & Rekap Rapat")
 
-st.caption("Ditenagai Google Gemini 3.8 Flash — Rekam langsung atau upload file, santai bentar, rekap kelar!")
+st.caption("Ditenagai Google Gemini — Rekam langsung atau upload file, santai bentar, rekap kelar!")
 
-# Pilihan Tab Input Audio
 tab_rekam, tab_upload = st.tabs(["🔴 Rekam Langsung (Mic)", "📁 Upload File Audio"])
 
 audio_bytes_source = None
@@ -143,7 +136,6 @@ with tab_upload:
         file_extension = os.path.splitext(uploaded_file.name)[1]
         st.audio(uploaded_file, format=uploaded_file.type)
 
-# Eksekusi Analisis Audio
 if audio_bytes_source is not None:
     if st.button("🚀 Mulai Analisis & Rekap Suara Ini", use_container_width=True):
         active_key = api_key_input or default_api_key
@@ -198,8 +190,12 @@ if audio_bytes_source is not None:
             """
 
             response = None
-            for attempt in range(3):
+            last_err = None
+
+            # Jaring pengaman multi-retry dengan jeda bertingkat (exponential backoff)
+            for attempt in range(5):
                 try:
+                    status_box.write(f"🧠 Memproses audio dengan Gemini 3.8 Flash (Upaya {attempt + 1}/5)...")
                     response = client.models.generate_content(
                         model="gemini-3.8-flash",
                         contents=[audio_cloud, prompt_notulensi],
@@ -207,12 +203,20 @@ if audio_bytes_source is not None:
                     )
                     break
                 except Exception as err:
-                    if attempt < 2 and ("503" in str(err) or "UNAVAILABLE" in str(err)):
-                        time.sleep(3)
+                    last_err = err
+                    err_msg = str(err)
+                    if "503" in err_msg or "UNAVAILABLE" in err_msg or "high demand" in err_msg:
+                        jeda = (attempt + 1) * 4
+                        status_box.write(f"⚠️ Server Google lagi padat, santai dulu {jeda} detik ya...")
+                        time.sleep(jeda)
                         continue
                     raise err
 
             client.files.delete(name=audio_cloud.name)
+
+            if response is None:
+                raise last_err
+
             status_box.update(label="Selesai! Notulensi siap disalin.", state="complete", expanded=False)
             st.success("✅ Rekapitulasi Rapat Berhasil Dibuat!")
             
@@ -240,7 +244,6 @@ if audio_bytes_source is not None:
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
 
-# Footer Watermark
 st.markdown("---")
 st.markdown(
     "<div style='text-align: center; color: #9ca3af; font-size: 0.85rem; padding: 15px 0;'>"
